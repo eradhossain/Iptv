@@ -1,7 +1,7 @@
 #EXTM3U
-#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=854x480
+#EXTINF:-1,480p
 https://pixeldrain.net/api/file/weaqH8GM?download
-#EXT-X-STREAM-INF:BANDWIDTH=1400000,RESOLUTION=1280x720
+#EXTINF:-1,720p
 https://pixeldrain.net/api/file/p4TaqQ3T?download
-#EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=1920x1080
+#EXTINF:-1,1080p
 https://pixeldrain.net/api/file/syg43jeH?download
