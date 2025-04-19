@@ -1,5 +1,4 @@
-import os
-import base64
+import os, base64
 from flask import Flask, send_file, abort
 from dotenv import load_dotenv
 
@@ -8,30 +7,27 @@ app = Flask(__name__)
 
 ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
 
-def encrypt_filename(name: str) -> str:
-    data = f"{name}:{ENCRYPTION_KEY}".encode()
-    return base64.urlsafe_b64encode(data).decode() + ".mp4"
-
-def decrypt_filename(enc: str) -> str:
-    if enc.endswith(".mp4"):
-        enc = enc[:-4]
+def decrypt_filename(token: str) -> str | None:
+    """Base64‑URL decode and verify ENCRYPTION_KEY suffix."""
+    if token.endswith(".mp4"):
+        token = token[:-4]
     try:
-        name_key = base64.urlsafe_b64decode(enc.encode()).decode()
-        name, key = name_key.split(":")
+        data = base64.urlsafe_b64decode(token + "==").decode()
+        name, key = data.rsplit(":", 1)
         return name if key == ENCRYPTION_KEY else None
     except:
         return None
 
-@app.route("/stream/<enc>")
-def stream(enc):
-    fname = decrypt_filename(enc)
-    if not fname:
-        return abort(404)
-    path = os.path.join("downloads", fname)
+@app.route("/stream/<token>.mp4")
+def stream(token):
+    real_name = decrypt_filename(token)
+    if not real_name:
+        return abort(404, "Invalid or tampered link.")
+    path = os.path.join("downloads", real_name)
     if not os.path.isfile(path):
-        return abort(404)
-    return send_file(path, as_attachment=False)
+        return abort(404, "File not found.")
+    return send_file(path, mimetype="video/mp4")
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))
+    port = int(os.getenv("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
