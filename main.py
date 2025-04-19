@@ -1,19 +1,23 @@
 import os
 import logging
 import subprocess
+import requests
+
 from telegram import Update
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
+
 from flask import Flask, send_from_directory, request
 from threading import Thread
 
-# Set Telegram Bot Token (set as env var or replace with your token)
+# Set Telegram Bot Token (set as env var or hardcode it)
 BOT_TOKEN = os.getenv("BOT_TOKEN") or "YOUR_TELEGRAM_BOT_TOKEN_HERE"
 
 # Logging
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                    level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Flask app to serve HLS content
+# Flask app
 app = Flask(__name__)
 
 # Directories
@@ -22,8 +26,8 @@ HLS_FOLDER = './hls'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(HLS_FOLDER, exist_ok=True)
 
-# Support up to 2GB uploads
-app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024 * 1024  # 2 GB
+# Max 2 GB upload limit for Flask
+app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024 * 1024  # 2GB
 
 # Convert MP4 to HLS
 def convert_to_hls(mp4_file):
@@ -45,15 +49,15 @@ def convert_to_hls(mp4_file):
         '-hls_segment_filename', os.path.join(output_dir, 'stream_%v_%03d.ts'),
         os.path.join(output_dir, 'stream_%v.m3u8')
     ]
-    
+
     subprocess.run(command, check=True)
     return f"https://{request.host}/static/hls/{base_name}/master.m3u8"
 
-# Telegram /start
+# Telegram: /start
 def start(update: Update, context: CallbackContext):
-    update.message.reply_text("Send me an MP4 video file and I will convert it to HLS stream (auto quality)")
+    update.message.reply_text("Send me an MP4 video file (up to 2 GB) and I will convert it to HLS stream.")
 
-# Handle MP4 file upload
+# Telegram: Handle MP4
 def handle_video(update: Update, context: CallbackContext):
     file = update.message.video or update.message.document
     if file:
@@ -62,27 +66,37 @@ def handle_video(update: Update, context: CallbackContext):
         file_path = os.path.join(UPLOAD_FOLDER, file_name)
 
         update.message.reply_text("Downloading your file...")
-        new_file = context.bot.get_file(file_id)
-        new_file.download(custom_path=file_path)
-
-        update.message.reply_text("Converting video to HLS format. Please wait...")
 
         try:
+            file_obj = context.bot.get_file(file_id)
+            file_url = file_obj.file_path
+
+            download_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_url}"
+            response = requests.get(download_url, stream=True)
+
+            with open(file_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+
+            update.message.reply_text("Converting video to HLS format. Please wait...")
+
             hls_link = convert_to_hls(file_path)
             update.message.reply_text(f"✅ Your stream is ready:\n{hls_link}")
-        except Exception as e:
-            logger.error(f"Conversion error: {e}")
-            update.message.reply_text("❌ Conversion failed. Please try again.")
 
-# Flask route to serve HLS
+        except Exception as e:
+            logger.error(f"Error: {e}")
+            update.message.reply_text("❌ Failed to process video. Check file size and try again.")
+
+# Flask: Serve HLS
 @app.route('/static/hls/<path:filename>')
 def serve_file(filename):
     return send_from_directory(HLS_FOLDER, filename)
 
-# Run Flask in background
+# Run Flask
 def run_flask():
     app.run(host='0.0.0.0', port=5000)
 
+# Main Bot
 def main():
     Thread(target=run_flask).start()
 
