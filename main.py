@@ -16,6 +16,8 @@ Directories
 
 UPLOAD_FOLDER = './uploads' HLS_FOLDER = './hls' os.makedirs(UPLOAD_FOLDER, exist_ok=True) os.makedirs(HLS_FOLDER, exist_ok=True)
 
+app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024 * 1024  # 2 GB
+
 Convert MP4 to HLS
 
 def convert_to_hls(mp4_file): base_name = os.path.splitext(os.path.basename(mp4_file))[0] output_dir = os.path.join(HLS_FOLDER, base_name) os.makedirs(output_dir, exist_ok=True)
