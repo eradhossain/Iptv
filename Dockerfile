@@ -1,24 +1,27 @@
-# Use an official Python image
+# Use Python 3.10 base
 FROM python:3.10-slim
 
-# Install FFmpeg and dependencies
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
+
+# Install FFmpeg and other dependencies
 RUN apt-get update && \
     apt-get install -y ffmpeg curl && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get clean
 
-# Set working directory
+# Set work directory
 WORKDIR /app
 
-# Copy requirements and install
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy files
+COPY . /app
 
-# Copy app code
-COPY . .
+# Install dependencies
+RUN pip install --upgrade pip
+RUN pip install -r requirements.txt
 
 # Expose port for Flask
 EXPOSE 5000
 
-# Run the app
+# Start the bot
 CMD ["python", "main.py"]
