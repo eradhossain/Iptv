@@ -1,5 +1,5 @@
 flask==2.1.3
 werkzeug==2.1.2
 pyrogram==2.0.106
-tgcrypto
-python-dotenv
+tgcrypto==1.2.1
+python-dotenv==1.0.0
