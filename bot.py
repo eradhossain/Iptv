@@ -1,90 +1,125 @@
-import os, subprocess, base64
+import os
+import base64
+import subprocess
+import shutil
 from pyrogram import Client, filters
 from pyrogram.types import Message
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Initialize
-BOT = Client(
+# Bot configuration from environment
+BOT_TOKEN      = os.getenv("BOT_TOKEN")
+API_ID         = int(os.getenv("API_ID"))
+API_HASH       = os.getenv("API_HASH")
+OWNER_ID       = int(os.getenv("OWNER_ID"))
+ALLOWED_IDS    = {int(x) for x in os.getenv("ALLOWED_USER_IDS", "").split(",")}
+BIN_CHANNEL_ID = int(os.getenv("BIN_CHANNEL_ID"))
+BASE_URL       = os.getenv("BASE_URL")
+ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
+
+# Initialize Pyrogram client
+bot = Client(
     "video_bot",
-    bot_token=os.getenv("BOT_TOKEN"),
-    api_id=int(os.getenv("API_ID")),
-    api_hash=os.getenv("API_HASH")
+    bot_token=BOT_TOKEN,
+    api_id=API_ID,
+    api_hash=API_HASH
 )
 
-OWNER_ID        = int(os.getenv("OWNER_ID"))
-ALLOWED_IDS     = {int(x) for x in os.getenv("ALLOWED_USER_IDS").split(",")}
-BIN_CHANNEL_ID  = int(os.getenv("BIN_CHANNEL_ID"))
-BASE_URL        = os.getenv("BASE_URL")
-ENCRYPTION_KEY  = os.getenv("ENCRYPTION_KEY")
-
 def is_allowed(uid: int) -> bool:
-    return uid == OWNER_ID or uid in ALLOWED_IDS
+    """Check if a user is allowed to use the bot."""
+    return uid == OWNER_ID or uid in ALLOWED_IDS  # 0
 
-def encrypt(name: str) -> str:
-    """Encode filename with key suffix, then Base64‑URL (no padding)."""
+def encrypt_filename(name: str) -> str:
+    """Encrypts filename by appending key and base64-url encoding without padding."""
     payload = f"{name}:{ENCRYPTION_KEY}".encode()
     token = base64.urlsafe_b64encode(payload).decode().rstrip("=")
-    return token
+    return token  # 1
 
-@BOT.on_message(filters.command("start") & filters.private)
-async def cmd_start(_, msg: Message):
-    if not is_allowed(msg.from_user.id):
-        return await msg.reply("❌ You are not allowed.")
-    await msg.reply("👋 Send me a video (MP4/MKV). I'll give direct streaming links in 480p, 720p & 1080p.")
+@bot.on_message(filters.command("start") & filters.private)
+async def start_cmd(client: Client, message: Message):
+    """Handle /start command."""
+    if not is_allowed(message.from_user.id):
+        return await message.reply("❌ Access Denied.")
+    await message.reply("👋 Hi! Send me a MP4 or MKV video and I'll return multi-quality streaming links.")
 
-@BOT.on_message(filters.command("help") & filters.private)
-async def cmd_help(_, msg: Message):
-    if not is_allowed(msg.from_user.id):
-        return await msg.reply("❌ You are not allowed.")
-    await msg.reply("1️⃣ Send MP4/MKV video\n2️⃣ Receive 3 encrypted `.mp4` links\n3️⃣ Play in VLC/MX Player")
+@bot.on_message(filters.command("help") & filters.private)
+async def help_cmd(client: Client, message: Message):
+    """Handle /help command."""
+    if not is_allowed(message.from_user.id):
+        return await message.reply("❌ Access Denied.")
+    help_text = (
+        "📖 **How to use:**\n"
+        "1. Send a MP4/MKV video.\n"
+        "2. The bot will convert it to 480p, 720p & 1080p.\n"
+        "3. Receive encrypted .mp4 links for each quality.\n"
+        "4. Play links in VLC or MX Player."
+    )
+    await message.reply(help_text)
 
-@BOT.on_message(filters.private & (filters.video | filters.document))
-async def handle_upload(_, msg: Message):
-    uid = msg.from_user.id
-    if not is_allowed(uid):
-        return await msg.reply("❌ Access denied.")
+@bot.on_message(filters.private & (filters.video | filters.document))
+async def handle_video(client: Client, message: Message):
+    """Download, convert to multiple qualities, upload, and reply with links."""
+    user_id = message.from_user.id
+    if not is_allowed(user_id):
+        return await message.reply("❌ Access Denied.")
 
-    status = await msg.reply("📥 Downloading…")
-    path = await msg.download()  # saves to local path
-    fname = os.path.basename(path)
-    base, _ = os.path.splitext(fname)
+    status = await message.reply("📥 Downloading...")
+    # Download to a temporary file
+    downloaded = await message.download()  # 2
+    filename = os.path.basename(downloaded)
+    base, ext = os.path.splitext(filename)
 
+    # Ensure downloads folder exists
+    os.makedirs("downloads", exist_ok=True)
+
+    # Define quality settings: (width, height, output path, ffmpeg CRF)
     qualities = {
-        "480p": (854, 480, f"downloads/{base}_480p.mp4", 28),
-        "720p": (1280, 720, f"downloads/{base}_720p.mp4", 23),
-        "1080p": (1920, 1080, f"downloads/{base}_1080p.mp4", 20),
+        "480p": ("854", "480", f"downloads/{base}_480p.mp4", "28"),
+        "720p": ("1280", "720", f"downloads/{base}_720p.mp4", "23"),
+        "1080p":("1920", "1080",f"downloads/{base}_1080p.mp4","20"),
     }
 
-    await status.edit("⚙️ Converting to multiple qualities…")
-    for label, (w,h,out,crf) in qualities.items():
+    # Convert to each quality using FFmpeg scale filter 
+    await status.edit("⚙️ Converting to multiple qualities...")
+    for label, (w, h, out_path, crf) in qualities.items():
         subprocess.run([
-            "ffmpeg", "-i", path,
+            "ffmpeg", "-i", downloaded,
             "-vf", f"scale={w}:{h}",
-            "-c:v", "libx264", "-crf", str(crf),
-            "-preset", "fast", "-c:a", "aac", out
+            "-c:v", "libx264",
+            "-crf", crf,
+            "-preset", "fast",
+            "-c:a", "aac",
+            out_path
         ], check=True)
 
-    await status.edit("⬆️ Uploading to BIN channel…")
+    await status.edit("⬆️ Uploading to Telegram BIN channel...")
     links = []
-    for label, (_,_,out,_) in qualities.items():
-        sent = await BOT.send_document(
+    # Upload each converted file and generate encrypted link
+    for label, (_,_, out_path, _) in qualities.items():
+        sent_msg = await bot.send_document(
             BIN_CHANNEL_ID,
-            document=out,
-            caption=f"{label} | uploaded by {uid}"
-        )
-        # get local filename (we re‑use our encoded name, not Telegram file_id)
-        enc = encrypt(os.path.basename(out))
-        links.append(f"**{label}**: `{BASE_URL}/stream/{enc}.mp4`")
+            document=out_path,
+            caption=f"{label} | uploaded by {user_id}"
+        )  # 4
+        encrypted = encrypt_filename(os.path.basename(out_path))
+        link = f"{BASE_URL}/stream/{encrypted}.mp4"
+        links.append(f"**{label}**: `{link}`")
 
-    await status.edit("✅ Here are your streaming links:\n\n" + "\n".join(links))
-    # cleanup
-    for _,_,out,_ in qualities.items():
-        try: os.remove(out)
-        except: pass
-    try: os.remove(path)
-    except: pass
+    # Send all links in one message
+    await status.edit("✅ Conversion complete!\n\n" + "\n".join(links))
+
+    # Cleanup temp files
+    try:
+        os.remove(downloaded)
+        for _,(_,_,out_path,_) in qualities.items():
+            os.remove(out_path)
+    except Exception:
+        pass
 
 def start_bot():
-    BOT.run()
+    """Run the bot (blocking)."""
+    bot.run()  # 5
+
+if __name__ == "__main__":
+    start_bot()
