@@ -1,11 +1,8 @@
-# main.py
-
 import os, time
 from threading import Thread
-import app     # your Flask app module
-import bot     # your Telegram bot module
+import app, bot
 
-# 1) Start Flask in background
+# Start Flask in background
 Thread(
     target=lambda: app.app.run(
         host="0.0.0.0",
@@ -14,9 +11,9 @@ Thread(
     daemon=True
 ).start()
 
-# 2) Start Telegram bot (this blocks — keeps the container alive)
-bot.run_bot()
+# Start Telegram bot (blocks) 1
+bot.start_bot()
 
-# 3) Fallback loop (in case bot.run_bot ever returns)
+# Failsafe so container stays alive
 while True:
     time.sleep(3600)
